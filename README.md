@@ -1,2 +1,2 @@
-# algotty
+# atty - A TTY Program
 
