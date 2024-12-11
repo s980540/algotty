@@ -260,13 +260,8 @@ int main(int argc, char *argv[])
 			printf("strcspn: %ld\n", strcspn(data_out, "\n"));
 			#endif
 
-			if (strcmp(data_out, "atty\n") == 0) {
-				printf("\n");
-				if (cfg.output_file || cfg.save)
-					printf("Save log to the file '%s' ...\n", file_name);
-				printf("Close serial port %s ...\n", cfg.dev_name);
+			if (strcmp(data_out, "atty\n") == 0)
 				break;
-			}
 
 			// // Raspberry Pi 5: ONLRET
 			// data_out[strcspn(data_out, "\n")] = '\r';
@@ -292,6 +287,7 @@ int main(int argc, char *argv[])
 
 exit:
 	if (fp) {
+		printf("\nSave log to the file '%s'\n", file_name);
 		ret = fclose(fp);
 		if (ret < 0)
 			fprintf(stderr, "Failed to close file %s: %s (%d)\n",
