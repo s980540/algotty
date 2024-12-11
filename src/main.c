@@ -17,6 +17,7 @@
 
 #define CONFIG_NON_BLOCK_MODE	(1)
 #define CONFIG_MAIN_DEBUG	(0)
+#define CONFIG_GETOPT_DEBUG	(0)
 
 #define DEFAULT_SERIAL_PORT	"/dev/ttyUSB0"
 #define DEFAULT_BAUD_RATE	115200
@@ -78,7 +79,7 @@ int main(int argc, char *argv[])
 	int opt;
 	/* handle (optional) flags first */
 	while ((opt = getopt(argc, argv, "cd:hlno:r:sv")) != -1) {
-		#if (CONFIG_MAIN_DEBUG)
+		#if (CONFIG_GETOPT_DEBUG)
 		printf("opt: %c\n", (char)opt);
 		#endif
 		switch (opt) {
@@ -145,6 +146,10 @@ int main(int argc, char *argv[])
 			break;
 		}
 	}
+
+	#if (CONFIG_GETOPT_DEBUG)
+	exit(EXIT_SUCCESS);
+	#endif
 
 	#if (CONFIG_NON_BLOCK_MODE)
 	int fd = open(cfg.dev_name, O_RDWR | O_NOCTTY | O_NDELAY);
