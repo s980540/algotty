@@ -128,9 +128,9 @@ int main(int argc, char *argv[])
 			cfg.save = 1;
 			time_t t = time(NULL);
 			struct tm *local = localtime(&t);
-			len = sprintf(file_name, "atty-%04d%02d%02d-%02d%02d%02d.txt",
+			len = sprintf(file_name, "log/atty-%04d%02d%02d-%02d%02d%02d.txt",
 				local->tm_year + 1900,
-				local->tm_mon,
+				local->tm_mon + 1,
 				local->tm_mday,
 				local->tm_hour,
 				local->tm_min,
@@ -261,7 +261,10 @@ int main(int argc, char *argv[])
 			#endif
 
 			if (strcmp(data_out, "atty\n") == 0) {
-				printf("%s", data_out);
+				printf("\n");
+				if (cfg.output_file || cfg.save)
+					printf("Save log to the file '%s' ...\n", file_name);
+				printf("Close serial port %s ...\n", cfg.dev_name);
 				break;
 			}
 
