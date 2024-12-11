@@ -13,21 +13,22 @@
 #include "list.h"
 #include "serial_port.h"
 
-#define ATTY_VERSION		"1.0.0"
+#define ATTY_VERSION			"1.0.0"
 
-#define CONFIG_NON_BLOCK_MODE	(1)
-#define CONFIG_MAIN_DEBUG	(0)
-#define CONFIG_GETOPT_DEBUG	(0)
+#define CONFIG_NON_BLOCK_MODE		(1)
+#define CONFIG_MAIN_DEBUG		(0)
+#define CONFIG_GETOPT_DEBUG		(0)
 
-#define DEFAULT_SERIAL_PORT	"/dev/ttyUSB0"
-#define DEFAULT_BAUD_RATE	115200
-#define DATA_IN_BUF_SIZE	8192
-#define DATA_OUT_BUF_SIZE	512
-#define NFDS			2
-#define POLL_TIMEOUT_MS		-1
-#define NON_BLOCK_DELAY_MS	100000
-#define FILE_NAME_MAX		256
-#define DEV_NAME_MAX		256
+#define DEFAULT_SERIAL_PORT		"/dev/ttyUSB0"
+#define DEFAULT_BAUD_RATE		115200
+#define DEFAULT_FILE_SIZE_LIMIT		1024 * 1024 * 1024
+#define DATA_IN_BUF_SIZE		8192
+#define DATA_OUT_BUF_SIZE		512
+#define NFDS				2
+#define POLL_TIMEOUT_MS			-1
+#define NON_BLOCK_DELAY_MS		100000
+#define FILE_NAME_MAX			256
+#define DEV_NAME_MAX			256
 
 struct pollfd fds[NFDS];
 
@@ -59,6 +60,7 @@ int main(int argc, char *argv[])
 	char *end;
 	size_t len;
 	ssize_t bytes_read, bytes_written;
+	ssize_t total_bytes_written = 0;
 	char data_in[DATA_IN_BUF_SIZE];
 	char data_out[DATA_OUT_BUF_SIZE];
 	char file_name[FILE_NAME_MAX];
@@ -66,21 +68,22 @@ int main(int argc, char *argv[])
 	memcpy(dev_name, DEFAULT_SERIAL_PORT, sizeof(DEFAULT_SERIAL_PORT));
 
 	struct serial_cfg cfg = {
-		.dev_name 	= dev_name,
-		.baud_rate 	= DEFAULT_BAUD_RATE,
-		.help 		= 0,
-		.output_file 	= 0,
-		.save 		= 0,
-		.icrnl 		= 0,
-		.onlret 	= 0,
-		.onlcr 		= 0
+		.dev_name 		= dev_name,
+		.baud_rate 		= DEFAULT_BAUD_RATE,
+		.file_size_limit	= 0,
+		.help 			= 0,
+		.output_file 		= 0,
+		.save 			= 0,
+		.icrnl 			= 0,
+		.onlret 		= 0,
+		.onlcr 			= 0
 	};
 
 	int opt;
 	/* handle (optional) flags first */
-	while ((opt = getopt(argc, argv, "cd:hlno:r:sv")) != -1) {
+	while ((opt = getopt(argc, argv, "cd:hlno:r:svz::")) != -1) {
 		#if (CONFIG_GETOPT_DEBUG)
-		printf("opt: %c\n", (char)opt);
+		printf("opt: %c,%d,%d\n", (char)opt, optind, argc);
 		#endif
 		switch (opt) {
 		case 'c':
@@ -114,7 +117,7 @@ int main(int argc, char *argv[])
 			break;
 		case 'r':
 			cfg.baud_rate = strtol(optarg, &end, 0);
-			if (cfg.baud_rate < 0) {
+			if (cfg.baud_rate <= 0 || errno == ERANGE) {
 				fprintf(stderr, "Invalid baud rate %s: %s (%d)\n",
 					optarg, strerror(errno), errno);
 				exit(EXIT_FAILURE);
@@ -138,6 +141,23 @@ int main(int argc, char *argv[])
 				local->tm_sec);
 			file_name[len] = '\0';
 			printf("output_file[%ld]: %s\n", len, file_name);
+			break;
+		case 'z':
+			if (optarg == NULL) {
+				cfg.file_size_limit = DEFAULT_FILE_SIZE_LIMIT;
+				printf("Using default file size limit: %ld\n",
+					cfg.file_size_limit);
+			} else {
+				cfg.file_size_limit = strtol(optarg, &end, 0);
+				if (cfg.file_size_limit <= 0 || errno == ERANGE) {
+					fprintf(stderr, "Invalid file size limit %s: %s (%d)\n",
+						optarg, strerror(errno), errno);
+					exit(EXIT_FAILURE);
+				}
+				printf("file_size_limit[%ld]: %s, %ld\n",
+					strlen(optarg), optarg, cfg.file_size_limit);
+			}
+
 			break;
 		case 'v':
 			printf("atty version %s\n", ATTY_VERSION);
@@ -168,14 +188,14 @@ int main(int argc, char *argv[])
 	if (ret < 0)
 		goto exit;
 
-	printf("Serial port %s opened successfully at %ld baud.\n",
+	printf("Serial port %s opened successfully at %ld baud\n",
 		cfg.dev_name, cfg.baud_rate);
 
 	if (cfg.output_file || cfg.save) {
 		printf("Save log to the file '%s'\n", file_name);
 		fp = fopen(file_name, "w");
 		if (fp < 0) {
-			fprintf(stderr, "Failed to open file %s: %s (%d)\n",
+			fprintf(stderr, "Failed to open the file '%s': %s (%d)\n",
 				file_name, strerror(errno), errno);
 			goto exit;
 		}
@@ -287,22 +307,29 @@ int main(int argc, char *argv[])
 					DEFAULT_SERIAL_PORT, strerror(errno), errno);
 				break;
 			}
+			if (cfg.file_size_limit > 0) {
+				total_bytes_written += bytes_written;
+				if (total_bytes_written >= cfg.file_size_limit) {
+					printf("Reached file size limit\n");
+					break;
+				}
+			}
 		}
 	}
 
 exit:
 	if (fp) {
-		printf("\nSave log to the file '%s'\n", file_name);
+		printf("\nSaved log to the file '%s'\n", file_name);
 		ret = fclose(fp);
 		if (ret < 0)
-			fprintf(stderr, "Failed to close file %s: %s (%d)\n",
+			fprintf(stderr, "Failed to close the file '%s': %s (%d)\n",
 				file_name, strerror(errno), errno);
 	}
 
 	ret = close(fd);
 	if (ret < 0) {
-		fprintf(stderr, "Failed to close fd (%d): %s (%d)\n",
-			fd, strerror(errno), errno);
+		fprintf(stderr, "Failed to close serial port %s (%d): %s (%d)\n",
+			cfg.dev_name, fd, strerror(errno), errno);
 	}
 
 	return ret ? EXIT_FAILURE : EXIT_SUCCESS;
