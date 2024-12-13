@@ -7,6 +7,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <time.h>
+#include <sys/stat.h>
 
 #include "global.h"
 #include "types.h"
@@ -20,6 +21,7 @@
 #define CONFIG_GETOPT_DEBUG		(0)
 
 #define DEFAULT_SERIAL_PORT		"/dev/ttyUSB0"
+#define DEFAULT_FOLDER_PATH		"log"
 #define DEFAULT_BAUD_RATE		115200
 #define DEFAULT_FILE_SIZE_LIMIT		1024 * 1024 * 1024
 #define DATA_IN_BUF_SIZE		8192
@@ -132,7 +134,7 @@ int main(int argc, char *argv[])
 			cfg.save = 1;
 			time_t t = time(NULL);
 			struct tm *local = localtime(&t);
-			len = sprintf(file_name, "log/atty-%04d%02d%02d-%02d%02d%02d.txt",
+			len = sprintf(file_name, DEFAULT_FOLDER_PATH"/atty-%04d%02d%02d-%02d%02d%02d.txt",
 				local->tm_year + 1900,
 				local->tm_mon + 1,
 				local->tm_mday,
@@ -191,10 +193,29 @@ int main(int argc, char *argv[])
 	printf("Serial port %s opened successfully at %ld baud\n",
 		cfg.dev_name, cfg.baud_rate);
 
+	if (cfg.save) {
+		struct stat statbuf;
+		if (stat(DEFAULT_FOLDER_PATH, &statbuf) == 0) {
+			if (S_ISDIR(statbuf.st_mode) == 0) {
+				printf("%s: A path with the same name exists, but it is not a directory\n",
+					DEFAULT_FOLDER_PATH);
+				goto exit;
+			}
+		} else {
+			if (mkdir(DEFAULT_FOLDER_PATH, 0755) == 0) {
+				printf("create the folder '%s'\n", DEFAULT_FOLDER_PATH);
+			} else {
+				fprintf(stderr, "Failed to create the folder '%s': %s (%d)\n",
+					DEFAULT_FOLDER_PATH, strerror(errno), errno);
+				goto exit;
+			}
+		}
+	}
+
 	if (cfg.output_file || cfg.save) {
 		printf("Save log to the file '%s'\n", file_name);
 		fp = fopen(file_name, "w");
-		if (fp < 0) {
+		if (fp == NULL) {
 			fprintf(stderr, "Failed to open the file '%s': %s (%d)\n",
 				file_name, strerror(errno), errno);
 			goto exit;
