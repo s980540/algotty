@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <libgen.h>
 #include <limits.h>
+#include <pwd.h>
 
 #include "global.h"
 #include "types.h"
@@ -23,7 +24,6 @@
 #define CONFIG_GETOPT_DEBUG		(0)
 
 #define DEFAULT_SERIAL_PORT		"/dev/ttyUSB0"
-#define DEFAULT_FOLDER_PATH		"log"
 #define DEFAULT_BAUD_RATE		115200
 #define DEFAULT_FILE_SIZE_LIMIT		1024 * 1024 * 1024
 #define DATA_IN_BUF_SIZE		8192
@@ -55,6 +55,41 @@ void sigint_handler(int sig) {
 		fprintf(stderr, "Failed to write data to %s: %s (%d)\n",
 			DEFAULT_SERIAL_PORT, strerror(errno), errno);
 	}
+}
+
+const char *get_home_dir(bool alloc)
+{
+	const char *user, *home;
+
+	if ((user = getenv("SUDO_USER")) != NULL) {
+		const struct passwd *pw = getpwnam(user);
+		if (pw == NULL) {
+			fprintf(stderr, "Failed to get passwd entry for user: %s\n",
+				user);
+		} else {
+			#if (CONFIG_GETOPT_DEBUG)
+			printf("pw->pw_dir: %s\n", pw->pw_dir);
+			#endif
+			home = pw->pw_dir;
+			goto exit;
+		}
+	}
+
+	home = getenv("HOME");
+	if (home == NULL)
+		fprintf(stderr, "HOME environment variable is not set\n");
+exit:
+	if (home == NULL)
+		return NULL;
+
+	if (alloc) {
+		char *dup = strdup(home);
+		if (dup == NULL)
+			fprintf(stderr, "Failed to duplicate string: %s (%d)\n",
+				strerror(errno), errno);
+		return dup;
+	}
+	return home;
 }
 
 int create_parent_dirs(const char *path)
@@ -103,8 +138,9 @@ int main(int argc, char *argv[])
 	ssize_t total_bytes_written = 0;
 	char data_in[DATA_IN_BUF_SIZE];
 	char data_out[DATA_OUT_BUF_SIZE];
-	char file_name[FILE_NAME_MAX];
+	char file_name[PATH_MAX + FILE_NAME_MAX];
 	char dev_name[DEV_NAME_MAX];
+	char default_log_dir[PATH_MAX];
 	memcpy(dev_name, DEFAULT_SERIAL_PORT, sizeof(DEFAULT_SERIAL_PORT));
 
 	struct serial_cfg cfg = {
@@ -170,9 +206,19 @@ int main(int argc, char *argv[])
 			if (cfg.output_file)
 				break;
 			cfg.save = 1;
+			const char *home = get_home_dir(false);
+			if (home == NULL) {
+				fprintf(stderr, "Failed to get home directory\n");
+				exit(EXIT_FAILURE);
+			}
+			len = sprintf(default_log_dir, "%s/log/", home);
+			default_log_dir[len] = '\0';
+			printf("default_log_dir[%ld]: %s\n", len, default_log_dir);
+
 			time_t t = time(NULL);
 			struct tm *local = localtime(&t);
-			len = sprintf(file_name, DEFAULT_FOLDER_PATH"/atty-%04d%02d%02d-%02d%02d%02d.txt",
+			len = sprintf(file_name, "%satty-%04d%02d%02d-%02d%02d%02d.txt",
+				default_log_dir,
 				local->tm_year + 1900,
 				local->tm_mon + 1,
 				local->tm_mday,
@@ -242,18 +288,18 @@ int main(int argc, char *argv[])
 
 	if (cfg.save) {
 		struct stat statbuf;
-		if (stat(DEFAULT_FOLDER_PATH, &statbuf) == 0) {
+		if (stat(default_log_dir, &statbuf) == 0) {
 			if (S_ISDIR(statbuf.st_mode) == 0) {
 				printf("%s: A path with the same name exists, but it is not a directory\n",
-					DEFAULT_FOLDER_PATH);
+					default_log_dir);
 				goto exit;
 			}
 		} else {
-			if (mkdir(DEFAULT_FOLDER_PATH, 0755) == 0) {
-				printf("create the folder '%s'\n", DEFAULT_FOLDER_PATH);
+			if (mkdir(default_log_dir, 0755) == 0) {
+				printf("create the folder '%s'\n", default_log_dir);
 			} else {
 				fprintf(stderr, "Failed to create the folder '%s': %s (%d)\n",
-					DEFAULT_FOLDER_PATH, strerror(errno), errno);
+					default_log_dir, strerror(errno), errno);
 				goto exit;
 			}
 		}
