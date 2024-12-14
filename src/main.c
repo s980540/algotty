@@ -8,6 +8,8 @@
 #include <signal.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <libgen.h>
+#include <limits.h>
 
 #include "global.h"
 #include "types.h"
@@ -53,6 +55,42 @@ void sigint_handler(int sig) {
 		fprintf(stderr, "Failed to write data to %s: %s (%d)\n",
 			DEFAULT_SERIAL_PORT, strerror(errno), errno);
 	}
+}
+
+int create_parent_dirs(const char *path)
+{
+	int ret;
+	char temp[PATH_MAX];
+	strncpy(temp, path, sizeof(temp) - 1);
+	temp[sizeof(temp) - 1] = '\0';
+
+	char *dir = dirname(temp);
+	struct stat statbuf;
+
+	if (stat(dir, &statbuf) == 0) {
+		if (S_ISDIR(statbuf.st_mode)) {
+			return 0;
+		} else {
+			printf("%s: A path with the same name exists, but it is not a directory\n",
+				dir);
+			return -1;
+		}
+	}
+
+	ret = create_parent_dirs(dir);
+	if (ret)
+		return ret;
+
+	if (mkdir(dir, 0755) != 0) {
+		fprintf(stderr, "Failed to create the folder '%s': %s (%d)\n",
+			dir, strerror(errno), errno);
+		return -errno;
+	}
+	#if (CONFIG_GETOPT_DEBUG)
+	printf("create the folder '%s'\n", dir);
+	#endif
+
+	return 0;
 }
 
 int main(int argc, char *argv[])
@@ -192,6 +230,15 @@ int main(int argc, char *argv[])
 
 	printf("Serial port %s opened successfully at %ld baud\n",
 		cfg.dev_name, cfg.baud_rate);
+
+	if (cfg.output_file) {
+		ret = create_parent_dirs(file_name);
+		if (ret) {
+			fprintf(stderr, "Failed to create the path '%s': %s (%d)\n",
+				dirname(file_name), strerror(errno), errno);
+			goto exit;
+		}
+	}
 
 	if (cfg.save) {
 		struct stat statbuf;
